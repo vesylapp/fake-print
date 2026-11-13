@@ -1,0 +1,23 @@
+README.md
+  s_5def4582ad886c::t_006828a969bf7a 74-76,79
+  s_5def4582ad886c::t_508b25e979c7c2 19-30,33-42
+  s_5def4582ad886c::t_4ba5161316aa58 80
+justfile
+  s_5def4582ad886c::t_761091f385a71d 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed2354377d9946681f0714ed9ad634d8d659b4df",
+  "prompts": {},
+  "sessions": {
+    "s_5def4582ad886c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1d368-afc7-77ec-aec2-184256279a17",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
