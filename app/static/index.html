@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fake IPP Printer</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #8a92a5; --accent: #5b9dff; --ok: #3ecf8e;
+    --warn: #f5b84a; --err: #ff6b6b; --busy: #5b9dff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--border);
+           background: var(--panel); flex-wrap: wrap; }
+  h1 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.idle { background: var(--ok); }
+  .dot.processing { background: var(--busy); animation: pulse 1s infinite; }
+  .dot.stopped { background: var(--err); }
+  .dot.offline { background: var(--muted); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .state-msg { color: var(--muted); font-weight: normal; font-size: 13px; }
+  .uris { color: var(--muted); font: 12px ui-monospace, monospace; display: flex; gap: 6px; flex-wrap: wrap; }
+  .uris span { background: var(--panel2); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; cursor: copy; }
+  .controls { margin-left: auto; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .controls label { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  select { background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+           border-radius: 4px; padding: 4px 6px; font: inherit; font-size: 13px; }
+  input[type=number] { width: 72px; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+                       border-radius: 4px; padding: 4px 6px; }
+  button, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 5px;
+                 padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px; text-decoration: none; display: inline-block; }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  button.on { background: #3a2323; border-color: var(--err); color: var(--err); }
+  main { flex: 1; display: grid; grid-template-columns: minmax(340px, 440px) 1fr; min-height: 0; }
+  #list { border-right: 1px solid var(--border); overflow-y: auto; }
+  .list-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px;
+               color: var(--muted); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+  .job { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .job:hover { background: var(--panel); }
+  .job.selected { background: var(--panel2); box-shadow: inset 3px 0 var(--accent); }
+  .job.new { animation: flash 1.5s ease-out; }
+  @keyframes flash { from { background: #24406b; } }
+  .job-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .job-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .warn { color: var(--warn); }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+  .s-pending, .s-pending-held { color: var(--muted); }
+  .s-processing { color: var(--busy); }
+  .s-processing-stopped { color: var(--warn); }
+  .s-completed { color: var(--ok); }
+  .s-canceled, .s-aborted { color: var(--err); }
+  .bar { height: 4px; background: var(--panel2); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--busy); transition: width .3s; }
+  .bar.done > div { background: var(--ok); }
+  .bar.indeterminate > div { width: 30% !important; animation: slide 1s infinite linear; }
+  @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+  #detail { display: flex; flex-direction: column; min-height: 0; }
+  .detail-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .detail-head h2 { margin: 0; font-size: 15px; margin-right: auto; }
+  .detail-body { flex: 1; display: grid; grid-template-columns: 1fr 280px; min-height: 0; }
+  iframe { width: 100%; height: 100%; border: 0; background: #444; }
+  .attrs { border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 14px; font-size: 12px; }
+  .attrs dt { color: var(--muted); margin-top: 8px; }
+  .attrs dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-all; }
+  .empty { margin: auto; text-align: center; color: var(--muted); padding: 40px; }
+  .empty code { color: var(--text); }
+  #drop { position: fixed; inset: 0; background: rgba(91, 157, 255, .15); border: 3px dashed var(--accent);
+          display: none; align-items: center; justify-content: center; font-size: 22px; z-index: 10; }
+  body.dragging #drop { display: flex; }
+  #toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: #fff; padding: 12px 18px;
+           border-radius: 8px; opacity: 0; transition: opacity .3s; pointer-events: none; font-weight: 600; }
+  #toast.show { opacity: 1; }
+  body.identify header { animation: identify .5s 6 alternate; }
+  @keyframes identify { to { background: var(--accent); } }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot offline" id="dot"></span><span id="pname">Fake IPP Printer</span>
+      <span class="state-msg" id="pstate">connecting…</span></h1>
+  <div class="uris" id="uris" title="Click to copy"></div>
+  <div class="controls">
+    <label>Media <select id="media"></select></label>
+    <label>Seconds / page <input type="number" id="spp" min="0" step="0.1"></label>
+    <button id="pause">Pause</button>
+    <button id="paper">Out of paper</button>
+    <label title="Drop files anywhere on the page to print them">
+      <input type="file" id="file" hidden><button onclick="document.getElementById('file').click()">Print file…</button>
+    </label>
+  </div>
+</header>
+<main>
+  <section id="list">
+    <div class="list-head"><span id="count">0 jobs</span><button class="danger" id="clear">Clear finished</button></div>
+    <div id="jobs"></div>
+  </section>
+  <section id="detail"><div class="empty">Waiting for print jobs…</div></section>
+</main>
+<div id="drop">Drop a file to print it</div>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+let printer = null, jobs = new Map(), selected = null, seen = new Set(), firstSnapshot = true;
+let shownPdfFor = null;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtSize = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB` : `${(n/1048576).toFixed(1)} MB`;
+const fmtTime = t => t ? new Date(t * 1000).toLocaleTimeString() : "—";
+const terminal = s => ["completed", "canceled", "aborted"].includes(s);
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) toast(await r.text());
+  return r;
+}
+
+function renderPrinter() {
+  if (!printer) return;
+  $("pname").textContent = printer.name;
+  document.title = `${printer.name} — ${printer.state_message}`;
+  $("dot").className = "dot " + printer.state;
+  $("pstate").textContent = printer.state_message + (printer.queued ? ` · ${printer.queued} queued` : "");
+  $("uris").innerHTML = [...printer.uris, ...printer.raw_uris].map(u => `<span>${esc(u)}</span>`).join("");
+  if (document.activeElement !== $("spp")) $("spp").value = printer.seconds_per_page;
+  if ($("media").options.length !== printer.media_options.length)
+    $("media").innerHTML = printer.media_options.map(m => `<option value="${esc(m.name)}">${esc(m.label)}</option>`).join("");
+  if (document.activeElement !== $("media")) $("media").value = printer.media;
+  $("pause").textContent = printer.paused ? "Resume" : "Pause";
+  $("pause").classList.toggle("on", printer.paused);
+  $("paper").textContent = printer.out_of_paper ? "Load paper" : "Out of paper";
+  $("paper").classList.toggle("on", printer.out_of_paper);
+}
+
+function progress(j) {
+  if (j.state_name === "processing" && j.total_impressions == null) return `<div class="bar indeterminate"><div></div></div>`;
+  if (j.total_impressions == null || terminal(j.state_name) && j.state_name !== "completed") return "";
+  const pct = j.total_impressions ? 100 * j.impressions_completed / j.total_impressions : 100;
+  return `<div class="bar ${j.state_name === "completed" ? "done" : ""}"><div style="width:${pct}%"></div></div>`;
+}
+
+function pagesText(j) {
+  if (j.total_impressions == null) return "";
+  const copies = j.copies > 1 ? ` (${j.pages} pg × ${j.copies})` : "";
+  return ` · ${j.impressions_completed}/${j.total_impressions} pages${copies}`;
+}
+
+function renderList() {
+  const sorted = [...jobs.values()].sort((a, b) => b.id - a.id);
+  $("count").textContent = `${sorted.length} job${sorted.length === 1 ? "" : "s"}`;
+  $("jobs").innerHTML = sorted.map(j => `
+    <div class="job ${j.id === selected ? "selected" : ""} ${seen.has(j.id) ? "" : "new"}" data-id="${j.id}">
+      <div class="job-top">
+        <span class="job-name">#${j.id} ${esc(j.name)}</span>
+        <span class="badge s-${j.state_name}">${j.state_name}</span>
+      </div>
+      <div class="job-meta">${esc(j.user)} · ${fmtTime(j.created)} · ${fmtSize(j.size)}${pagesText(j)}${
+        j.notes?.length ? ` · <span class="warn">${j.notes.length} note${j.notes.length > 1 ? "s" : ""}</span>` : ""}</div>
+      ${progress(j)}
+    </div>`).join("");
+  sorted.forEach(j => seen.add(j.id));
+}
+
+function renderDetail() {
+  const j = jobs.get(selected);
+  if (!j) {
+    shownPdfFor = null;
+    $("detail").innerHTML = printer ? `<div class="empty">
+      <p>Waiting for print jobs…</p>
+      <p>Add this printer with <code>${esc(printer.uris[0])}</code><br>or drop a file anywhere on this page.</p></div>` : "";
+    return;
+  }
+  const docs = j.documents.map((d, i) =>
+    `<a class="btn" href="/jobs/${j.id}/documents/${i + 1}">Original${j.documents.length > 1 ? " " + (i + 1) : ""}</a>`).join(" ");
+  const head = `
+    <div class="detail-head">
+      <h2>#${j.id} ${esc(j.name)} <span class="badge s-${j.state_name}">${j.state_name}</span></h2>
+      ${j.has_pdf ? `<a class="btn" href="/jobs/${j.id}/pdf" target="_blank">Open PDF</a>` : ""}
+      ${docs}
+      ${terminal(j.state_name) ? "" : `<button class="danger" data-act="cancel">Cancel</button>`}
+      <button class="danger" data-act="delete">Delete</button>
+    </div>`;
+  const rows = [
+    ["State", `${j.state_name}${j.message ? " — " + j.message : ""}`],
+    ["Reasons", j.reasons.join(", ")],
+    ["User", j.user],
+    ["Pages", j.pages ?? "—"], ["Copies", j.copies],
+    ["Printed", `${j.impressions_completed} / ${j.total_impressions ?? "?"}`],
+    ["Received", new Date(j.created * 1000).toLocaleString()],
+    ["Started", fmtTime(j.processing_at)], ["Finished", fmtTime(j.completed_at)],
+    ["Documents", j.documents.map((d, i) => `${d.format}${j.detected_formats[i] && j.detected_formats[i] !== d.format ? " → " + j.detected_formats[i] : ""} (${fmtSize(d.size)})`).join("<br>")],
+    ...(j.notes?.length ? [["Notes", j.notes.map(esc).join("<br>")]] : []),
+    ...Object.entries(j.attributes).map(([k, v]) => [k, JSON.stringify(v.length === 1 ? v[0] : v)]),
+  ];
+  const attrs = `<dl class="attrs">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === "Notes" ? ' class="warn"' : ""}>${k === "Documents" || k === "Notes" ? v : esc(v)}</dd>`).join("")}</dl>`;
+
+  // Keep the iframe alive across progress updates so the PDF viewer doesn't reload every page.
+  const frameKey = j.has_pdf ? j.id : null;
+  if (shownPdfFor === frameKey && $("detail").querySelector(".detail-body")) {
+    $("detail").querySelector(".detail-head").outerHTML = head;
+    $("detail").querySelector(".attrs").outerHTML = attrs;
+    return;
+  }
+  shownPdfFor = frameKey;
+  const preview = j.has_pdf ? `<iframe src="/jobs/${j.id}/pdf"></iframe>`
+    : `<div class="empty">${j.state_name === "aborted" ? esc(j.message) : "Rendering…"}</div>`;
+  $("detail").innerHTML = head + `<div class="detail-body">${preview}${attrs}</div>`;
+}
+
+function render() { renderPrinter(); renderList(); renderDetail(); }
+
+function select(id) { selected = id; renderList(); renderDetail(); }
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "snapshot") {
+      printer = m.printer; jobs = new Map(m.jobs.map(j => [j.id, j]));
+      if (firstSnapshot) { m.jobs.forEach(j => seen.add(j.id)); firstSnapshot = false; }
+      if (!jobs.has(selected)) selected = m.jobs[0]?.id ?? null;
+      render();
+    } else if (m.type === "printer") {
+      printer = m.printer; renderPrinter();
+    } else if (m.type === "job") {
+      const isNew = !jobs.has(m.job.id);
+      jobs.set(m.job.id, m.job);
+      if (isNew) { selected = m.job.id; toast(`New job #${m.job.id}: ${m.job.name}`); }
+      renderList();
+      if (m.job.id === selected) renderDetail();
+    } else if (m.type === "job-deleted") {
+      jobs.delete(m.id);
+      if (selected === m.id) selected = [...jobs.keys()].sort((a, b) => b - a)[0] ?? null;
+      renderList(); renderDetail();
+    } else if (m.type === "identify") {
+      toast(`Identify requested${m.message ? ": " + m.message : ""}`);
+      document.body.classList.remove("identify"); void document.body.offsetWidth; document.body.classList.add("identify");
+    }
+  };
+  es.onerror = () => { $("dot").className = "dot offline"; $("pstate").textContent = "disconnected — retrying…"; };
+}
+
+$("jobs").addEventListener("click", e => { const el = e.target.closest(".job"); if (el) select(+el.dataset.id); });
+$("detail").addEventListener("click", async e => {
+  const act = e.target.dataset?.act;
+  if (act === "cancel") await api(`/api/jobs/${selected}/cancel`, { method: "POST" });
+  if (act === "delete") await api(`/api/jobs/${selected}`, { method: "DELETE" });
+});
+$("spp").addEventListener("change", e => api("/api/settings", { method: "POST", body: JSON.stringify({ seconds_per_page: e.target.value }) }));
+$("media").addEventListener("change", e => api("/api/settings", { method: "POST", body: JSON.stringify({ media: e.target.value }) }));
+$("pause").onclick = () => api("/api/settings", { method: "POST", body: JSON.stringify({ paused: !printer.paused }) });
+$("paper").onclick = () => api("/api/settings", { method: "POST", body: JSON.stringify({ out_of_paper: !printer.out_of_paper }) });
+$("clear").onclick = () => api("/api/clear", { method: "POST" });
+$("uris").addEventListener("click", e => {
+  if (e.target.tagName === "SPAN") navigator.clipboard?.writeText(e.target.textContent).then(() => toast("Copied printer URI"));
+});
+
+async function upload(files) {
+  for (const f of files) {
+    const fd = new FormData(); fd.append("file", f, f.name);
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
+    if (!r.ok) toast(await r.text());
+  }
+}
+$("file").onchange = e => { upload(e.target.files); e.target.value = ""; };
+let dragDepth = 0;
+addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; document.body.classList.add("dragging"); });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging"); upload(e.dataTransfer.files); });
+
+connect();
+</script>
+</body>
+</html>

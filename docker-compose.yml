@@ -1,0 +1,26 @@
+services:
+  fake-printer:
+    build: .
+    container_name: fake-printer
+    restart: unless-stopped
+    # Host networking lets mDNS/Bonjour discovery reach the LAN so the printer
+    # shows up automatically on macOS, iOS, Windows, Linux and Android.
+    network_mode: host
+    environment:
+      PRINTER_NAME: "Fake IPP Printer"
+      PRINTER_LOCATION: "Docker"
+      SECONDS_PER_PAGE: "2"      # printing speed; 0 = instant, can be changed live in the web UI
+      IPP_PORT: "8631"           # 631 is the standard IPP port, but CUPS usually owns it on desktop Linux
+      WEB_PORT: "8080"
+      RAW_PORT: "9100"           # raw JetDirect/AppSocket printing (Zebra/ZPL style); "0" disables
+      MEDIA_DEFAULT: "na_letter_8.5x11in"   # loaded paper at startup; also changeable in the web UI. Options:
+                                            # na_letter_8.5x11in, na_legal_8.5x14in, iso_a4_210x297mm, iso_a5_148x210mm,
+                                            # na_index-4x6_4x6in, oe_4x6-label_4x6in, na_number-10_4.125x9.5in
+      LABELARY: "true"           # render ZPL with the Labelary API (sends ZPL to api.labelary.com); "false" shows ZPL source
+      ZPL_DPMM: "8"              # ZPL print density in dots/mm: 6, 8 (203 dpi), 12 (300 dpi) or 24 (600 dpi)
+      COLOR: "true"
+      DUPLEX: "true"
+      MDNS: "true"
+      # ADVERTISE_IP: "10.0.0.164"   # LAN address to announce; defaults to the default-route interface
+    volumes:
+      - ./print-jobs:/data
