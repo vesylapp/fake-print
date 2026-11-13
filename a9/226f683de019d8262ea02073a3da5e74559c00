@@ -1,0 +1,35 @@
+.dockerignore
+  s_cb2dfad2c88173::t_59bd7075b5c6af 1-2
+.gitignore
+  s_cb2dfad2c88173::t_1034c9e24f0ec4 1-2
+README.md
+  s_cb2dfad2c88173::t_50a07f8192ade6 1-104
+app/convert.py
+  s_cb2dfad2c88173::t_40f78314eb2292 1-311
+app/ipp.py
+  s_cb2dfad2c88173::t_e0cf36e513287c 1-223
+app/mdns.py
+  s_cb2dfad2c88173::t_40995fb2410659 1-95
+app/server.py
+  s_cb2dfad2c88173::t_2e465de51651ef 1-1065
+app/static/index.html
+  s_cb2dfad2c88173::t_707777f332a15a 1-286
+docker-compose.yml
+  s_cb2dfad2c88173::t_d62e037b82a7b4 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a9226f683de019d8262ea02073a3da5e74559c00",
+  "prompts": {},
+  "sessions": {
+    "s_cb2dfad2c88173": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1d311-f3b9-7583-b8b2-c0a52d33e96e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
