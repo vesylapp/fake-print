@@ -16,10 +16,30 @@ Or use the prebuilt image, which GitHub Actions publishes on every push to `main
 `sha-<short commit>`:
 
 ```sh
-docker pull ghcr.io/vesylapp/fake-print:latest
+docker run -d \
+  --name fake-printer \
+  --restart unless-stopped \
+  --network host \
+  -e PRINTER_NAME="Fake IPP Printer" \
+  -e SECONDS_PER_PAGE=2 \
+  -e IPP_PORT=8631 \
+  -e WEB_PORT=8080 \
+  -e RAW_PORT=9100 \
+  -e MEDIA_DEFAULT=na_letter_8.5x11in \
+  -v "$PWD/print-jobs:/data" \
+  ghcr.io/vesylapp/fake-print:latest
 ```
 
-To use it with compose, replace `build: .` in `docker-compose.yml` with
+- `--network host` is needed for Bonjour/AirPrint discovery and only works on Linux. To print by
+  address only, use `-p 8631:8631 -p 8080:8080 -p 9100:9100 -e MDNS=false` instead.
+- Any setting from the [Configuration](#configuration-environment-variables-in-docker-composeyml)
+  table can be passed with `-e`.
+- If the package is private, log in first with a GitHub token that has `read:packages`:
+  `echo "$GITHUB_TOKEN" | docker login ghcr.io -u <github-username> --password-stdin`
+- Update with `docker pull ghcr.io/vesylapp/fake-print:latest`, then remove and re-run the
+  container. Stop it with `docker rm -f fake-printer`.
+
+To use the prebuilt image with compose instead, replace `build: .` in `docker-compose.yml` with
 `image: ghcr.io/vesylapp/fake-print:latest`.
 
 - **Dashboard:** http://localhost:8080/
@@ -51,8 +71,12 @@ reach the printer by URI, you can drop that and publish ports instead
 reach the printer:
 
 ```sh
-sudo ufw allow 9100/tcp && sudo ufw allow 8631/tcp && sudo ufw allow 8080/tcp && sudo ufw allow 5353/udp
+just firewall-up      # allows the IPP, web and raw ports from docker-compose.yml, plus mDNS (5353/udp)
+just firewall-down    # removes those rules again
+just firewall-status
 ```
+
+The `justfile` also has `just up`, `just down` and `just logs`.
 
 ## What it supports
 
