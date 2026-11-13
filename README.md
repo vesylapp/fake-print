@@ -11,6 +11,17 @@ them.
 docker compose up -d --build
 ```
 
+Or use the prebuilt image, which GitHub Actions publishes on every push to `main`
+(`linux/amd64` and `linux/arm64`, so it also runs on a Raspberry Pi). Tags are `latest` and
+`sha-<short commit>`:
+
+```sh
+docker pull ghcr.io/vesylapp/fake-print:latest
+```
+
+To use it with compose, replace `build: .` in `docker-compose.yml` with
+`image: ghcr.io/vesylapp/fake-print:latest`.
+
 - **Dashboard:** http://localhost:8080/
 - **Printer URI:** `ipp://<this-machine-ip>:8631/ipp/print` (the dashboard header lists the exact URIs)
 - **PDFs:** `./print-jobs/jobs/<id>/output.pdf`. The original bytes the client sent are saved next to
@@ -40,7 +51,7 @@ reach the printer by URI, you can drop that and publish ports instead
 reach the printer:
 
 ```sh
-sudo ufw allow 8631/tcp && sudo ufw allow 8080/tcp && sudo ufw allow 5353/udp
+sudo ufw allow 9100/tcp && sudo ufw allow 8631/tcp && sudo ufw allow 8080/tcp && sudo ufw allow 5353/udp
 ```
 
 ## What it supports
