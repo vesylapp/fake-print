@@ -103,6 +103,7 @@ class Job:
     processing_at: float | None = None
     completed_at: float | None = None
     pages: int | None = None
+    page_sizes: list = field(default_factory=list)  # [[width, height]] in points, per page
     impressions_completed: int = 0
     has_pdf: bool = False
     closed: bool = False
@@ -334,6 +335,7 @@ class Printer:
         if cancel.is_set():
             return
         job.pages = convert.page_count(pdf)
+        job.page_sizes = convert.page_sizes(pdf)
         job.detected_formats = detected
         job.has_pdf = True
         job.reasons, job.message = ["job-printing"], "Printing"
@@ -379,6 +381,8 @@ class Printer:
         if ranges := job.attributes.get("page-ranges"):
             pdf = convert.select_pages(pdf, ranges)
         (job.dir / "output.pdf").write_bytes(pdf)
+        for old in job.dir.glob("page-*.png"):  # previews of a previous render
+            old.unlink(missing_ok=True)
         return pdf, detected
 
 
@@ -941,6 +945,34 @@ async def job_pdf(request):
     })
 
 
+async def job_page(request):
+    job = get_job(request)
+    pdf = job.dir / "output.pdf"
+    try:
+        n = int(request.match_info["n"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    if not pdf.exists() or not 1 <= n <= (job.pages or 0):
+        raise web.HTTPNotFound()
+    if not job.page_sizes:  # jobs rendered before page sizes were recorded
+        job.page_sizes = await asyncio.to_thread(convert.page_sizes, pdf.read_bytes())
+        job.save()
+    # The dashboard asks for the exact device-pixel width it will display the page at.
+    try:
+        width = int(request.query.get("w", 0))
+    except ValueError:
+        width = 0
+    page_w, page_h = job.page_sizes[n - 1]
+    if not 16 <= width <= 4000:
+        width = round(page_w / 72 * 150)
+    height = max(1, round(width * page_h / page_w))
+    path = job.dir / f"page-{n}-{width}.png"
+    if not path.exists():
+        png = await asyncio.to_thread(convert.render_page_png, pdf, n, width, height)
+        path.write_bytes(png)
+    return web.FileResponse(path, headers={"Content-Type": "image/png"})
+
+
 async def job_document(request):
     job = get_job(request)
     try:
@@ -993,6 +1025,7 @@ def build_app(printer):
     app.router.add_post("/api/jobs/{id}/cancel", api_cancel)
     app.router.add_delete("/api/jobs/{id}", api_delete)
     app.router.add_get("/jobs/{id}/pdf", job_pdf)
+    app.router.add_get("/jobs/{id}/pages/{n}.png", job_page)
     app.router.add_get("/jobs/{id}/documents/{n}", job_document)
     app.router.add_post("/{tail:.*}", ipp_handler)  # IPP: any POST with application/ipp
     return app

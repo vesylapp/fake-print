@@ -127,6 +127,15 @@ def page_count(pdf_bytes):
     return len(PdfReader(io.BytesIO(pdf_bytes)).pages)
 
 
+def page_sizes(pdf_bytes):
+    """[(width, height)] in points for each page, as displayed (rotation applied)."""
+    sizes = []
+    for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
+        w, h = float(page.mediabox.width), float(page.mediabox.height)
+        sizes.append((h, w) if page.rotation % 180 else (w, h))
+    return sizes
+
+
 def merge(pdfs):
     if len(pdfs) == 1:
         return pdfs[0]
@@ -150,6 +159,21 @@ def select_pages(pdf_bytes, ranges):
     out = io.BytesIO()
     writer.write(out)
     return out.getvalue()
+
+
+def render_page_png(pdf_path, page, width_px, height_px):
+    """Rasterize one page (1-based) of a PDF file to a PNG of exactly width_px x height_px, so the
+    browser can show it pixel-for-pixel instead of resampling it (which blurs small text)."""
+    # Poppler rather than Ghostscript: at screen resolutions Ghostscript's glyph hinting gives
+    # small text uneven letter spacing ("CORPO RA TIO N").
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(
+            ["pdftocairo", "-png", "-singlefile", "-f", str(page), "-l", str(page),
+             "-scale-to-x", str(width_px), "-scale-to-y", str(height_px),
+             str(pdf_path), str(Path(tmp, "page"))],
+            check=True, capture_output=True, timeout=120,
+        )
+        return Path(tmp, "page.png").read_bytes()
 
 
 # ------------------------------------------------------------- converters

@@ -65,7 +65,8 @@
   .detail-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .detail-head h2 { margin: 0; font-size: 15px; margin-right: auto; }
   .detail-body { flex: 1; display: grid; grid-template-columns: 1fr 280px; min-height: 0; }
-  iframe { width: 100%; height: 100%; border: 0; background: #444; }
+  .pages { overflow-y: auto; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .pages img { flex: none; background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
   .attrs { border-left: 1px solid var(--border); overflow-y: auto; padding: 10px 14px; font-size: 12px; }
   .attrs dt { color: var(--muted); margin-top: 8px; }
   .attrs dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-all; }
@@ -205,7 +206,7 @@ function renderDetail() {
   ];
   const attrs = `<dl class="attrs">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === "Notes" ? ' class="warn"' : ""}>${k === "Documents" || k === "Notes" ? v : esc(v)}</dd>`).join("")}</dl>`;
 
-  // Keep the iframe alive across progress updates so the PDF viewer doesn't reload every page.
+  // Keep the page images alive across progress updates so they don't reload every page.
   const frameKey = j.has_pdf ? j.id : null;
   if (shownPdfFor === frameKey && $("detail").querySelector(".detail-body")) {
     $("detail").querySelector(".detail-head").outerHTML = head;
@@ -213,10 +214,32 @@ function renderDetail() {
     return;
   }
   shownPdfFor = frameKey;
-  const preview = j.has_pdf ? `<iframe src="/jobs/${j.id}/pdf"></iframe>`
+  const preview = j.has_pdf ? `<div class="pages"></div>`
     : `<div class="empty">${j.state_name === "aborted" ? esc(j.message) : "Rendering…"}</div>`;
   $("detail").innerHTML = head + `<div class="detail-body">${preview}${attrs}</div>`;
+  if (j.has_pdf) renderPages(j);
 }
+
+// Show each page at actual size (96 CSS px per inch), or shrunk to fit the pane, and ask the
+// server for an image with exactly that many device pixels so the browser never resamples it.
+function renderPages(j) {
+  const pane = $("detail").querySelector(".pages");
+  const dpr = window.devicePixelRatio || 1;
+  const room = pane.clientWidth - 40;  // minus padding
+  const sizes = j.page_sizes?.length ? j.page_sizes : Array(j.pages).fill([612, 792]);
+  pane.innerHTML = sizes.map(([w, h], i) => {
+    const cssWidth = Math.min(w / 72 * 96, room);
+    const px = Math.round(cssWidth * dpr);
+    return `<img src="/jobs/${j.id}/pages/${i + 1}.png?w=${px}" alt="Page ${i + 1}" loading="lazy"
+      style="width:${px / dpr}px; height:${Math.round(px * h / w) / dpr}px">`;
+  }).join("");
+}
+
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { const j = jobs.get(selected); if (j?.has_pdf) renderPages(j); }, 300);
+});
 
 function render() { renderPrinter(); renderList(); renderDetail(); }
 
