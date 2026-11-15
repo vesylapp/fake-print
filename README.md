@@ -119,7 +119,7 @@ ipptool -tv -f some.pdf -d filetype=application/pdf ipp://localhost:8631/ipp/pri
   /usr/share/cups/ipptool/print-job.test
 ```
 
-Or drag a file onto the dashboard.
+Or use **Print file…** in the dashboard.
 
 ## HTTP API
 

@@ -72,9 +72,6 @@
   .attrs dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-all; }
   .empty { margin: auto; text-align: center; color: var(--muted); padding: 40px; }
   .empty code { color: var(--text); }
-  #drop { position: fixed; inset: 0; background: rgba(91, 157, 255, .15); border: 3px dashed var(--accent);
-          display: none; align-items: center; justify-content: center; font-size: 22px; z-index: 10; }
-  body.dragging #drop { display: flex; }
   #toast { position: fixed; bottom: 20px; right: 20px; background: var(--accent); color: #fff; padding: 12px 18px;
            border-radius: 8px; opacity: 0; transition: opacity .3s; pointer-events: none; font-weight: 600; }
   #toast.show { opacity: 1; }
@@ -92,9 +89,7 @@
     <label>Seconds / page <input type="number" id="spp" min="0" step="0.1"></label>
     <button id="pause">Pause</button>
     <button id="paper">Out of paper</button>
-    <label title="Drop files anywhere on the page to print them">
-      <input type="file" id="file" hidden><button onclick="document.getElementById('file').click()">Print file…</button>
-    </label>
+    <input type="file" id="file" hidden><button onclick="document.getElementById('file').click()">Print file…</button>
   </div>
 </header>
 <main>
@@ -104,7 +99,6 @@
   </section>
   <section id="detail"><div class="empty">Waiting for print jobs…</div></section>
 </main>
-<div id="drop">Drop a file to print it</div>
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -179,7 +173,7 @@ function renderDetail() {
     shownPdfFor = null;
     $("detail").innerHTML = printer ? `<div class="empty">
       <p>Waiting for print jobs…</p>
-      <p>Add this printer with <code>${esc(printer.uris[0])}</code><br>or drop a file anywhere on this page.</p></div>` : "";
+      <p>Add this printer with <code>${esc(printer.uris[0])}</code><br>or use “Print file…”.</p></div>` : "";
     return;
   }
   const docs = j.documents.map((d, i) =>
@@ -230,7 +224,7 @@ function renderPages(j) {
   pane.innerHTML = sizes.map(([w, h], i) => {
     const cssWidth = Math.min(w / 72 * 96, room);
     const px = Math.round(cssWidth * dpr);
-    return `<img src="/jobs/${j.id}/pages/${i + 1}.png?w=${px}" alt="Page ${i + 1}" loading="lazy"
+    return `<img src="/jobs/${j.id}/pages/${i + 1}.png?w=${px}" alt="Page ${i + 1}" loading="lazy" draggable="false"
       style="width:${px / dpr}px; height:${Math.round(px * h / w) / dpr}px">`;
   }).join("");
 }
@@ -297,11 +291,9 @@ async function upload(files) {
   }
 }
 $("file").onchange = e => { upload(e.target.files); e.target.value = ""; };
-let dragDepth = 0;
-addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; document.body.classList.add("dragging"); });
-addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+// Ignore drops so a stray drag doesn't make the browser open the file and leave the dashboard.
 addEventListener("dragover", e => e.preventDefault());
-addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging"); upload(e.dataTransfer.files); });
+addEventListener("drop", e => e.preventDefault());
 
 connect();
 </script>
