@@ -1,0 +1,37 @@
+app/convert.py
+  s_5def4582ad886c::t_433a7cd1ba67aa 167-168,171-173,176
+  s_0992cf455fa5ca::t_9aed67e6a476c7 169-170,174-175,177-178
+  s_5def4582ad886c::t_22670c07030d28 130-138,164-166
+app/static/index.html
+  s_0992cf455fa5ca::t_15730e4deb0ae6 68,209
+  s_5def4582ad886c::t_53b078ef8efae7 69,217,220,223-243
+app/server.py
+  s_0992cf455fa5ca::t_972526863488e9 948-956,961,963,970,972-975,1028
+  s_5def4582ad886c::t_425e278a7a6eee 106,338,384-385,957-960,962,964-969,971
+Dockerfile
+  s_5def4582ad886c::t_433a7cd1ba67aa 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "363fe61d744560724456bf133b161bba6fe40bbe",
+  "prompts": {},
+  "sessions": {
+    "s_0992cf455fa5ca": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1dd83-ad93-7556-b7e8-7c114123097b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    },
+    "s_5def4582ad886c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1d368-afc7-77ec-aec2-184256279a17",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
