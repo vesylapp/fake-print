@@ -1,0 +1,37 @@
+tests/test_cleanup.py
+  s_5def4582ad886c::t_79fa36d34efb13 1-72,82-102
+  s_5def4582ad886c::t_fe9fd08da2c8c7 73-81
+docker-compose.yml
+  s_5def4582ad886c::t_f745b20add7a02 19
+scripts/firewall.py
+  s_5def4582ad886c::t_c82bff9310167a 1-38
+justfile
+  s_5def4582ad886c::t_5f1eaef48aaba0 24,26,28,32
+app/static/index.html
+  s_5def4582ad886c::t_54110750302252 72,197-198,201-209,215,221-222
+app/server.py
+  s_5def4582ad886c::t_df4d1a9d49daff 16,776-777,947,1118
+  s_5def4582ad886c::t_fe4675782ca087 342,344,347,395-398
+  s_5def4582ad886c::t_8a4b60b9750e81 37-40,148-149,316,321-322,343,346,348-351,382-383,386,389,623-636,831,841-843,848,854,949-957,988-990,1000-1001,1003-1028,1071
+app/labelary.py
+  s_5def4582ad886c::t_75773ec38c683c 48-49,51-54,57-58,67,70-75,78-79
+  s_5def4582ad886c::t_363549c0319d1e 55-56,59-66,68-69,76-77
+README.md
+  s_5def4582ad886c::t_3fb6c3f6e5b26c 60,76,105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a12a85c03f57fd81452dcdbc5e665ba766e4d8cf",
+  "prompts": {},
+  "sessions": {
+    "s_5def4582ad886c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1d368-afc7-77ec-aec2-184256279a17",
+        "model": "gpt-6.2-astra"
+      },
+      "human_author": "Ben Wyrosdick <ben.wyrosdick@gmail.com>"
+    }
+  }
+}
