@@ -1,7 +1,6 @@
 """Fake IPP printer: accepts jobs over IPP, renders them to PDF, shows them on a web dashboard."""
 
 import asyncio
-import gzip
 import json
 import logging
 import math
@@ -14,7 +13,7 @@ import zlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from aiohttp import web
+from aiohttp import BodyPartReader, web
 
 import convert
 import ipp
@@ -35,6 +34,10 @@ SECONDS_PER_PAGE = float(os.environ.get("SECONDS_PER_PAGE", "2"))
 IPP_PORT = int(os.environ.get("IPP_PORT", "631"))
 WEB_PORT = int(os.environ.get("WEB_PORT", "8080"))
 RAW_PORT = int(os.environ.get("RAW_PORT", "9100"))  # JetDirect/AppSocket raw printing; 0 disables
+MAX_DOCUMENT_BYTES = int(os.environ.get("MAX_DOCUMENT_BYTES", 64 * 1024**2))
+if MAX_DOCUMENT_BYTES < 1:
+    raise ValueError("MAX_DOCUMENT_BYTES must be positive")
+
 RAW_IDLE_TIMEOUT = float(os.environ.get("RAW_IDLE_TIMEOUT", "10"))
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 MDNS_ENABLED = env_bool("MDNS", True)
@@ -142,6 +145,8 @@ class Printer:
         self.accepting = True
         self.active_job: int | None = None
         self.state_changed = time.time()
+        self.preview_slots = asyncio.Semaphore(2)
+        self.preview_tasks = {}
         self.cancel_events: dict[int, asyncio.Event] = {}
         self.wake = asyncio.Event()
         self.subscribers: set[asyncio.Queue] = set()
@@ -308,10 +313,13 @@ class Printer:
             job = self.jobs.get(job_id)
             cancel = self.cancel_events.get(job_id)
             if not job or job.state != PENDING or not cancel:
+                self.cancel_events.pop(job_id, None)
                 continue
             try:
                 await self.process(job, cancel)
             except Exception as e:
+                if cancel.is_set() or self.jobs.get(job_id) is not job:
+                    continue
                 log.exception("job %d failed", job.id)
                 job.state, job.reasons, job.message = ABORTED, ["aborted-by-system"], f"Error: {e}"
                 job.completed_at = time.time()
@@ -331,12 +339,16 @@ class Printer:
         self.publish_job(job)
         self.publish_printer()
 
-        pdf, detected = await asyncio.to_thread(self.render, job)
-        if cancel.is_set():
+        staged, detected, notes, sizes = await asyncio.to_thread(self.render, job, self.media)
+        if cancel.is_set() or self.jobs.get(job.id) is not job:
+            staged.unlink(missing_ok=True)
             return
-        job.pages = convert.page_count(pdf)
-        job.page_sizes = convert.page_sizes(pdf)
-        job.detected_formats = detected
+        # Commit only while this job still belongs to the queue; no await in this block.
+        staged.replace(job.dir / "output.pdf")
+        for old in job.dir.glob("page-*.png"):
+            old.unlink(missing_ok=True)
+        job.page_sizes, job.pages = sizes, len(sizes)
+        job.detected_formats, job.notes = detected, notes
         job.has_pdf = True
         job.reasons, job.message = ["job-printing"], "Printing"
         self.publish_job(job)
@@ -367,23 +379,23 @@ class Printer:
         self.publish_job(job)
         log.info("job %d: completed", job.id)
 
-    def render(self, job):
-        pdfs, detected, job.notes = [], [], []
+    def render(self, job, media):
+        pdfs, detected, all_notes = [], [], []
         for doc in job.documents:
             data = (job.dir / doc["file"]).read_bytes()
-            pdf, fmt, notes = convert.to_pdf(data, doc["format"], media_points(self.media))
+            pdf, fmt, notes = convert.to_pdf(data, doc["format"], media_points(media))
             pdfs.append(pdf)
             detected.append(fmt)
-            job.notes += notes
+            all_notes.extend(notes)
             for note in notes:
                 log.info("job %d: %s", job.id, note)
         pdf = convert.merge(pdfs)
         if ranges := job.attributes.get("page-ranges"):
             pdf = convert.select_pages(pdf, ranges)
-        (job.dir / "output.pdf").write_bytes(pdf)
-        for old in job.dir.glob("page-*.png"):  # previews of a previous render
-            old.unlink(missing_ok=True)
-        return pdf, detected
+        sizes = convert.page_sizes(pdf)
+        staged = job.dir / "output.pdf.tmp"
+        staged.write_bytes(pdf)
+        return staged, detected, all_notes, sizes
 
 
 def jsonable(value):
@@ -608,15 +620,20 @@ class IPPError(Exception):
 def read_document(req):
     data = req.data
     compression = req.get(T.OPERATION, "compression", "none")
-    try:
-        if compression == "gzip":
-            data = gzip.decompress(data)
-        elif compression == "deflate":
-            data = zlib.decompress(data)
-        elif compression not in ("none", None):
-            raise IPPError(T.COMPRESSION_NOT_SUPPORTED, f"Unsupported compression '{compression}'")
-    except (OSError, zlib.error) as e:
-        raise IPPError(T.BAD_REQUEST, f"Could not decompress document: {e}")
+    if len(data) > MAX_DOCUMENT_BYTES:
+        raise IPPError(0x0408, "Document too large")
+    if compression in ("gzip", "deflate"):
+        decoder = zlib.decompressobj(31 if compression == "gzip" else 15)
+        try:
+            data = decoder.decompress(data, MAX_DOCUMENT_BYTES + 1)
+        except zlib.error as e:
+            raise IPPError(T.BAD_REQUEST, "Invalid compressed document") from e
+        if len(data) > MAX_DOCUMENT_BYTES:
+            raise IPPError(0x0408, "Expanded document too large")
+        if not decoder.eof or decoder.unused_data:
+            raise IPPError(T.BAD_REQUEST, "Incomplete or trailing compressed data")
+    elif compression != "none":
+        raise IPPError(T.COMPRESSION_NOT_SUPPORTED, "Unsupported compression")
     return data
 
 
@@ -756,6 +773,8 @@ async def ipp_handler(request):
     printer = request.app["printer"]
     if request.content_type != "application/ipp":
         return web.Response(status=400, text="Expected Content-Type: application/ipp\n")
+    if request.headers.get("Content-Encoding", "identity") != "identity":
+        raise web.HTTPUnsupportedMediaType(text="Use IPP document compression")
     body = await request.read()
     try:
         req = ipp.parse(body)
@@ -809,7 +828,7 @@ async def raw_handler(printer, reader, writer):
     peer = writer.get_extra_info("peername")
     host = peer[0] if peer else "unknown"
     log.info("raw: connection from %s", host)
-    chunks = []
+    chunks = bytearray()
     try:
         while True:
             try:
@@ -819,17 +838,20 @@ async def raw_handler(printer, reader, writer):
                 break
             if not chunk:
                 break
+            if len(chunks) + len(chunk) > MAX_DOCUMENT_BYTES:
+                log.warning("raw: oversized job from %s discarded", host)
+                return
             if b"~HS" in chunk.upper():
                 log.info("raw: %s sent ~HS status query, replying", host)
                 writer.write(zebra_host_status(printer))
                 await writer.drain()
-            chunks.append(chunk)
+            chunks.extend(chunk)
     except (ConnectionResetError, BrokenPipeError) as e:
         log.info("raw: %s connection dropped: %s", host, e)
     finally:
         writer.close()
 
-    data = b"".join(chunks)
+    data = bytes(chunks)
     payload = data.replace(b"~HS", b"").replace(b"~hs", b"").strip()
     if not payload:
         log.info("raw: %s closed without sending a document (%d bytes: %r)", host, len(data), data[:80])
@@ -922,9 +944,17 @@ async def api_upload(request):
     printer = request.app["printer"]
     reader = await request.multipart()
     part = await reader.next()
-    if part is None:
+    if not isinstance(part, BodyPartReader):
         raise web.HTTPBadRequest(text="No file")
-    data = await part.read(decode=True)
+    if part.headers.get("Content-Encoding", "identity") != "identity" or part.headers.get("Content-Transfer-Encoding", "binary") not in ("binary", "8bit"):
+        raise web.HTTPUnsupportedMediaType(text="Upload the original file without transfer encoding")
+    data = bytearray()
+    while chunk := await part.read_chunk():
+        size = len(data) + len(chunk)
+        if size > MAX_DOCUMENT_BYTES:
+            raise web.HTTPRequestEntityTooLarge(max_size=MAX_DOCUMENT_BYTES, actual_size=size)
+        data.extend(chunk)
+    data = bytes(data)
     fmt = convert.detect(data)
     job = printer.create_job(part.filename or "Upload", "web-upload", {})
     printer.add_document(job, data, fmt)
@@ -955,7 +985,9 @@ async def job_page(request):
     if not pdf.exists() or not 1 <= n <= (job.pages or 0):
         raise web.HTTPNotFound()
     if not job.page_sizes:  # jobs rendered before page sizes were recorded
-        job.page_sizes = await asyncio.to_thread(convert.page_sizes, pdf.read_bytes())
+        job.page_sizes = await asyncio.to_thread(lambda: convert.page_sizes(pdf.read_bytes()))
+        if request.app["printer"].jobs.get(job.id) is not job:
+            raise web.HTTPNotFound()
         job.save()
     # The dashboard asks for the exact device-pixel width it will display the page at.
     try:
@@ -965,12 +997,35 @@ async def job_page(request):
     page_w, page_h = job.page_sizes[n - 1]
     if not 16 <= width <= 4000:
         width = round(page_w / 72 * 150)
-    height = max(1, round(width * page_h / page_w))
+    width = max(1, min(width, 4000, int(4000 * page_w / page_h)))
+    height = max(1, min(4000, round(width * page_h / page_w)))
     path = job.dir / f"page-{n}-{width}.png"
-    if not path.exists():
-        png = await asyncio.to_thread(convert.render_page_png, pdf, n, width, height)
-        path.write_bytes(png)
-    return web.FileResponse(path, headers={"Content-Type": "image/png"})
+    printer = request.app["printer"]
+
+    async def preview():
+        try:
+            async with printer.preview_slots:
+                if path.exists():
+                    return path.read_bytes()
+                if printer.jobs.get(job.id) is not job:
+                    raise web.HTTPNotFound()
+                png = await asyncio.to_thread(convert.render_page_png, pdf, n, width, height)
+                if printer.jobs.get(job.id) is not job:
+                    raise web.HTTPNotFound()
+                path.write_bytes(png)
+                older = sorted((p for p in job.dir.glob(f"page-{n}-*.png") if p != path),
+                               key=lambda p: p.stat().st_mtime_ns, reverse=True)
+                for p in older[2:]:
+                    p.unlink(missing_ok=True)
+                return png
+        finally:
+            printer.preview_tasks.pop(path, None)
+
+    task = printer.preview_tasks.get(path)
+    if task is None:
+        task = printer.preview_tasks[path] = asyncio.create_task(preview())
+    png = await asyncio.shield(task)
+    return web.Response(body=png, content_type="image/png")
 
 
 async def job_document(request):
@@ -1013,7 +1068,7 @@ async def events(request):
 # ===================================================================== main
 
 def build_app(printer):
-    app = web.Application(client_max_size=2 * 1024 ** 3)
+    app = web.Application(client_max_size=MAX_DOCUMENT_BYTES + 1024**2)
     app["printer"] = printer
     app.router.add_get("/", index)
     app.router.add_get("/icon.png", icon)
@@ -1060,7 +1115,7 @@ async def main():
     printer = Printer()
     printer.load()
     app = build_app(printer)
-    runner = web.AppRunner(app, access_log=None)
+    runner = web.AppRunner(app, access_log=None, auto_decompress=False)
     await runner.setup()
     for port in sorted({IPP_PORT, WEB_PORT}):
         await web.TCPSite(runner, host=None, port=port).start()

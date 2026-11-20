@@ -45,23 +45,38 @@ def render(zpl, width_in, height_in):
 
 
 def _batches(zpl):
-    """Split into requests within the label-count and size limits. Anything before the first ^XA
-    (e.g. ~DG graphic downloads) is repeated in each batch so later labels can still use it."""
-    labels = re.findall(rb"\^XA.*?(?:\^XZ|$)", zpl, flags=re.S | re.I)
-    if len(labels) <= MAX_LABELS and len(zpl) <= MAX_BYTES:
+    """Only split streams of independent label formats. Never silently drop setup commands."""
+    if len(zpl) <= MAX_BYTES and zpl.upper().count(b"^XA") <= MAX_LABELS:
         return [zpl]
-    start = re.search(rb"\^XA", zpl, flags=re.I)
-    preamble = zpl[:start.start()] if start else b""
-    batches, current = [], []
-    for label in labels:
-        size = len(preamble) + sum(map(len, current)) + len(label)
-        if current and (len(current) >= MAX_LABELS or size > MAX_BYTES):
-            batches.append(preamble + b"".join(current))
-            current = []
-        current.append(label)
-    if current:
-        batches.append(preamble + b"".join(current))
-    return batches
+    reason = "ZPL exceeds one Labelary request and cannot be split safely"
+    # Conservative allowlist for independent labels; downloaded/stored formats, graphics
+    # and configuration changes can carry state across requests.
+    allowed = set(b"XA XZ FO FT FD FS FH CF A0 GB GC GD GE BY BC BQ BX".split())
+    commands = re.finditer(rb"\^(.{2})", zpl, re.S)
+    if b"~" in zpl or any(m[1].upper() not in allowed for m in commands):
+        raise LabelaryError(reason)
+    batches, current, count, end = [], bytearray(), 0, 0
+    start = None
+    for token in re.finditer(rb"\^(XA|XZ)", zpl, re.I):
+        if token[1].upper() == b'XA':
+            if start is not None or zpl[end:token.start()].strip():
+                raise LabelaryError(reason)
+            start = token.start()
+            continue
+        if start is None or token.end() - start > MAX_BYTES:
+            raise LabelaryError(reason)
+        label = zpl[start:token.end()]
+        start = None
+        if count == MAX_LABELS or len(current) + len(label) > MAX_BYTES:
+            batches.append(bytes(current))
+            current.clear()
+            count = 0
+        current.extend(label)
+        count += 1
+        end = token.end()
+    if start is not None or not current or zpl[end:].strip():
+        raise LabelaryError(reason)
+    return [*batches, bytes(current)]
 
 
 def _request(zpl, width_in, height_in):

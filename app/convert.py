@@ -123,10 +123,6 @@ def _zpl_to_pdf(data, page_size):
     return _text_to_pdf(header + data.decode("utf-8", "replace"), page_size), [reason]
 
 
-def page_count(pdf_bytes):
-    return len(PdfReader(io.BytesIO(pdf_bytes)).pages)
-
-
 def page_sizes(pdf_bytes):
     """[(width, height)] in points for each page, as displayed (rotation applied)."""
     sizes = []

@@ -57,6 +57,7 @@ To use the prebuilt image with compose instead, replace `build: .` in `docker-co
 | `PRINTER_NAME`     | `Fake IPP Printer`    | Name shown in mDNS and IPP. |
 | `PRINTER_LOCATION` | `Docker`              | |
 | `MEDIA_DEFAULT`    | `na_letter_8.5x11in`  | Paper loaded at startup; switch it live with the **Media** dropdown in the dashboard (resets on restart). Options: `na_letter_8.5x11in`, `na_legal_8.5x14in`, `iso_a4_210x297mm`, `iso_a5_148x210mm`, `na_index-4x6_4x6in`, `oe_4x6-label_4x6in`, `na_number-10_4.125x9.5in`. The printer reports it as `media-ready`/`media-default`, and text, ZPL and unrecognized jobs are laid out on it. |
+| `MAX_DOCUMENT_BYTES` | `67108864` | Maximum size of one document (64 MiB by default), including after IPP decompression. Applies to IPP, web uploads and port 9100. |
 | `LABELARY`         | `true`                | Render ZPL jobs with the [Labelary API](https://labelary.com/service.html). See [ZPL labels](#zpl-labels). |
 | `ZPL_DPMM`         | `8`                   | ZPL print density in dots per mm: `6`, `8` (203 dpi), `12` (300 dpi) or `24` (600 dpi). Must match the density the ZPL was written for. |
 | `LABELARY_URL`     | `https://api.labelary.com` | Change this if you have a Labelary premium or on-premise server. |
@@ -72,7 +73,7 @@ reach the printer:
 
 ```sh
 just firewall-up      # allows the IPP, web and raw ports from docker-compose.yml, plus mDNS (5353/udp)
-just firewall-down    # removes those rules again
+just firewall-down    # removes only rules tagged fake-print-managed-v1; older/manual rules are left alone
 just firewall-status
 ```
 
@@ -101,7 +102,7 @@ Labelary's linter also runs, and any ZPL warnings are shown on the job in the da
   plan has no zero-data-retention guarantee. Set `LABELARY: "false"` if your labels contain data
   that shouldn't be sent there.
 - **Free-plan limits:** 3 requests/second, 5,000 per day, 50 labels and 1 MB per request. Large
-  jobs are split into batches automatically, and requests are paced to stay under the rate limit.
+  jobs made of simple independent labels are batched. If setup commands or persistent printer state make a split unsafe, the job shows the source and a warning instead. Requests are paced to stay under the rate limit.
 - **If Labelary can't render a job** (offline, daily limit, invalid ZPL), the job still completes
   with the ZPL source as text, and the reason is shown on the job.
 
